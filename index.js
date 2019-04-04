@@ -27,6 +27,7 @@ router.post("/saveCV", saveCV);
 router.post("/login", login);
 router.post("/cvMenu", cvMenu);
 router.post("/getCV", getCV);
+router.post("/getLastCV", getLastCV);
 router.post("/delete", deleteCV);
 router.post("/deleteAll", deleteAll);
 router.get("/fonts", getFonts);
@@ -58,10 +59,10 @@ async function createUser(user){
 async function login(ctx) {
     var user = ctx.request.body.user;
     if(ctx.request.body.createUser) {ctx.body = await createUser(user); return}
-    if(ctx.request.body.key != false && user == false){ctx.body = await keyLogin(ctx.request.body.key); return}
+    if(ctx.request.body.key != false && user == false){ctx.body = await keyLogin(ctx.request.body.key);return}
     profile = await GetProfileByEmail(user.email); 
-    if(profile == false){ctx.body = {status: false, msg: "Profile does not exist"}}
-    else if(user.password !== profile.password){ctx.body = {status: false, msg: "Incorrect password"}}
+    if(profile == false){ctx.body = {status: false, msg: "Profile does not exist"}; return}
+    else if(user.password !== profile.password){ctx.body = {status: false, msg: "Incorrect password"}; return}
     var key = await getKey(user, ctx.request.body.key);
     ctx.body = {"status": true, "msg": "Login successfull", "name": profile.name, "key": key}
 }
@@ -77,8 +78,7 @@ async function getKey(user, key){
     var expDate = Date.now() + sessionDuration;
     if(key != false){
         var profile = await GetProfileByKey(key);
-        if(profile != false || profile.email === user.email) {
-            console.log("updating existing key");
+        if(profile != false && profile.email === user.email) {                 
             await sessionCollection.updateOne({"key": key}, {$set: {"expDate": expDate}})
             return key;
         }
@@ -93,6 +93,7 @@ async function saveCV(ctx){
     var content = ctx.request.body.content;
     await profileCollection.updateOne({"email": profile.email}, {$pull: {"cvList": {"cvName" : content.cvName}}});
     await profileCollection.updateOne({"email": profile.email}, {$addToSet:{'cvList': {"cvName": content.cvName, "content": content}}});
+    await profileCollection.updateOne({"email": profile.email}, {$set:{'lastCV': content.cvName}});
     ctx.body = true;
 }
 
@@ -106,6 +107,13 @@ async function cvMenu(ctx){
 async function getCV(ctx){
     profile = (await GetProfileByKey(ctx.request.body.key));
     ctx.body = profile.cvList.find(e => e.cvName === ctx.request.body.cvName);
+    await profileCollection.updateOne({"email": profile.email}, {$set:{'lastCV': ctx.request.body.cvName}});
+}
+
+async function getLastCV(ctx){
+    profile = (await GetProfileByKey(ctx.request.body.key));
+    if(!profile.lastCV) {ctx.body = false; return}
+    ctx.body = profile.cvList.find(e => e.cvName === profile.lastCV);
 }
 
 async function deleteCV(ctx){
