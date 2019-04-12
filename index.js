@@ -46,46 +46,43 @@ async function GetProfileByKey(key){
     return res;
 }
 
-async function createUser(user){
+async function createUser(user, ip){
     if(user.name.length < 3){return {status: false, msg: "Username must be at least 3 characters"}};
     if(user.email.length < 3){return {status: false, msg: "Invalid email address"}};
-    if(user.password.length < 7){return {status: false, msg: "Password must be at least 6 characters"}};
+    if(user.password.length < 6){return {status: false, msg: "Password must be at least 6 characters"}};
     profile = await GetProfileByEmail(user.email); 
     if(profile !== false){return {status: false, msg: "Email address is taken"}};
     await profileCollection.insertOne(user);
-    return {status: true, msg: "New profile created", "name": profile.name, "key": await getKey(user, false)}
+    return {status: true, msg: "New profile created", "name": user.name, "key": await getKey(user, ip)}
 }
 
 async function login(ctx) {
     var user = ctx.request.body.user;
-    if(ctx.request.body.createUser) {ctx.body = await createUser(user); return}
-    if(ctx.request.body.key != false && user == false){ctx.body = await keyLogin(ctx.request.body.key);return}
+    if(ctx.request.body.createUser) {ctx.body = await createUser(user, ctx.request.ip); return}
+    if(ctx.request.body.key != false && user == false){ctx.body = await autoLogin(ctx.request.body.key);return}
     profile = await GetProfileByEmail(user.email); 
     if(profile == false){ctx.body = {status: false, msg: "Profile does not exist"}; return}
     else if(user.password !== profile.password){ctx.body = {status: false, msg: "Incorrect password"}; return}
-    var key = await getKey(user, ctx.request.body.key);
-    ctx.body = {"status": true, "msg": "Login successfull", "name": profile.name, "key": key}
+    ctx.body = {"status": true, "msg": "Login successfull", "name": profile.name, "key": await getKey(user, ctx.request.ip)}
 }
 
-async function keyLogin(key) {
+async function autoLogin(key) {
     var profile = await GetProfileByKey(key);
     if(profile == false){return {status: false, msg: "Session key " + key + " not found"}};
     await sessionCollection.updateOne({"key": key}, {$set: {"expDate": Date.now() + sessionDuration}});
     return {"status": true, "msg": "logged in", "name": profile.name, "key": key};
 }
 
-async function getKey(user, key){
-    var expDate = Date.now() + sessionDuration;
-    if(key != false){
-        var profile = await GetProfileByKey(key);
-        if(profile != false && profile.email === user.email) {                 
-            await sessionCollection.updateOne({"key": key}, {$set: {"expDate": expDate}})
-            return key;
-        }
+async function getKey(user, ip){
+    var res = await sessionCollection.findOne({$and: [{"email": user.email}, {"ip": ip}]});
+    if(res && res.key){
+        await sessionCollection.updateOne({"key": res.key}, {$set: {"expDate": Date.now() + sessionDuration}})
+        return res.key;
     }
-    key = randomstring.generate();
-    await sessionCollection.insertOne({"key": key, "email": user.email, "expDate": expDate}) 
+    var key = randomstring.generate();
+    await sessionCollection.insertOne({"key": key, "email": user.email, "expDate": Date.now() + sessionDuration, "ip": ip})  
     return key;
+
 }
 
 async function saveCV(ctx){
