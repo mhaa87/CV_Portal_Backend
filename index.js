@@ -13,16 +13,13 @@ const dbName = "cv_portal";
 const sessionDuration = 3 * 24 * 60 * 60 * 1000;
 var profileCollection;
 var sessionCollection;
-client.connect().then(async function(){
-    profileCollection = client.db(dbName).collection("profiles");
-    sessionCollection = await client.db(dbName).collection("sessions");
-    cleanSessions();
-}).catch((err) => console.log(err));
+var databaseConnected = false;
 
 app.use(logger());
 app.use(cors());
 app.use(BodyParser());
 
+router.use("/", checkConnection);
 router.post("/saveCV", saveCV);
 router.post("/login", login);
 router.post("/cvMenu", cvMenu);
@@ -31,6 +28,20 @@ router.post("/getLastCV", getLastCV);
 router.post("/delete", deleteCV);
 router.post("/deleteAll", deleteAll);
 router.get("/fonts", getFonts);
+
+async function checkConnection(ctx, next){
+    if(databaseConnected === false){
+        await client.connect().then(async function(){
+            profileCollection = client.db(dbName).collection("profiles");
+            sessionCollection = await client.db(dbName).collection("sessions");
+            databaseConnected = true;
+            // cleanSessions();
+            await next();
+        }).catch((err) => {console.log(err); ctx.body = {status: false, msg: "Database connection error"};});
+    }else{
+        await next();
+    }
+}
 
 async function GetProfileByEmail(email){
     var res = await profileCollection.findOne({"email": email})
@@ -57,6 +68,7 @@ async function createUser(user, ip){
 }
 
 async function login(ctx) {
+    console.log("logging in");
     var user = ctx.request.body.user;
     if(ctx.request.body.createUser) {ctx.body = await createUser(user, ctx.request.ip); return}
     if(ctx.request.body.key != false && user == false){ctx.body = await autoLogin(ctx.request.body.key);return}
@@ -97,8 +109,9 @@ async function saveCV(ctx){
 async function cvMenu(ctx){
     var profile = await GetProfileByKey(ctx.request.body.key);
     if(profile === false){ctx.body = {status: false, msg: "Error: could not find profile"}; return};
+    ctx.body = {status: true, msg: ""}
     if(profile.cvList == false || profile.cvList == undefined){ctx.body = []; return};
-    ctx.body = profile.cvList.map(e => e.cvName);
+    ctx.body.cvList = profile.cvList.map(e => e.cvName);
 }
 
 async function getCV(ctx){
@@ -120,7 +133,9 @@ async function deleteCV(ctx){
 }
 
 async function deleteAll(ctx){
-    await profileCollection.updateOne({"profile": ctx.request.body.profile}, {$set: {"cvList": []}});
+    var profile = await GetProfileByKey(ctx.request.body.key);
+    console.log(profile);
+    await profileCollection.updateOne({"email": profile.email}, {$set: {"cvList": []}});
     ctx.body = true;
 }
 
