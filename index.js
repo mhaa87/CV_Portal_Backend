@@ -11,6 +11,10 @@ const app = new Koa();
 const router = new Router();
 const dbName = "cv_portal";
 const sessionDuration = 3 * 24 * 60 * 60 * 1000;
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
+// var hash = bcrypt.hashSync(user.password, saltRounds);
+// bcrypt.compareSync(ctx.request.body.password, user.password)
 var profileCollection;
 var sessionCollection;
 var databaseConnected = false;
@@ -32,7 +36,7 @@ router.get("/fonts", getFonts);
 async function checkConnection(ctx, next){
     if(databaseConnected === false){
         await client.connect().then(async function(){
-            profileCollection = client.db(dbName).collection("profiles");
+            profileCollection = await client.db(dbName).collection("profiles");
             sessionCollection = await client.db(dbName).collection("sessions");
             databaseConnected = true;
             // cleanSessions();
@@ -63,6 +67,7 @@ async function createUser(user, ip){
     if(user.password.length < 6){return {status: false, msg: "Password must be at least 6 characters"}};
     profile = await GetProfileByEmail(user.email); 
     if(profile !== false){return {status: false, msg: "Email address is taken"}};
+    user.password = bcrypt.hashSync(user.password, saltRounds);
     await profileCollection.insertOne(user);
     return {status: true, msg: "New profile created", "name": user.name, "key": await getKey(user, ip)}
 }
@@ -74,7 +79,7 @@ async function login(ctx) {
     if(ctx.request.body.key != false && user == false){ctx.body = await autoLogin(ctx.request.body.key);return}
     profile = await GetProfileByEmail(user.email); 
     if(profile == false){ctx.body = {status: false, msg: "Profile does not exist"}; return}
-    else if(user.password !== profile.password){ctx.body = {status: false, msg: "Incorrect password"}; return}
+    else if(bcrypt.compareSync(user.password, profile.password)){ctx.body = {status: false, msg: "Incorrect password"}; return}
     ctx.body = {"status": true, "msg": "Login successfull", "name": profile.name, "key": await getKey(user, ctx.request.ip)}
 }
 
